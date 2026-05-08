@@ -928,7 +928,7 @@ wheels = [
 [[package]]
 name = "ria-voice-assistant"
 version = "1.0.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "elevenlabs" },
     { name = "fastapi" },
