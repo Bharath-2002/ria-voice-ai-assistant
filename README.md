@@ -57,3 +57,44 @@ Entities & Shared (Config, Logging, Exceptions)
 ```
 
 Dependency flow is always **downward** — layers never import from above.
+
+---
+
+## Evaluator Testing Instructions
+
+### Make a voice call to Ria
+
+Call **+1 701 575 1233** to speak with the BlueStone voice assistant directly.
+
+### Test WhatsApp product cards
+
+1. Open WhatsApp and send a message to **+1 415 523 8886**
+2. Send the join code to activate the Twilio sandbox:
+   ```
+   join buried-audience
+   ```
+3. Once joined, call **+1 701 575 1233** — Ria will send product cards to your WhatsApp during the conversation.
+
+### Suggested test scenarios
+
+| Scenario | What to say |
+|----------|-------------|
+| Budget filter | "Show me gold earrings under 30,000 rupees" |
+| Occasion-based | "I need a gift for my wife's anniversary" |
+| Metal preference | "I prefer platinum, what necklaces do you have?" |
+| Product detail | Ask about a specific item Ria recommends |
+| Clarification | Give a vague request and see if Ria probes for context |
+
+---
+
+## Production Deployment (Railway)
+
+```bash
+# 1. Push repo to GitHub
+# 2. Create project on railway.app and connect the repo
+# 3. Add Redis plugin → Railway injects REDIS_URL automatically
+# 4. Add PostgreSQL plugin → Railway injects DATABASE_URL automatically
+# 5. Set remaining env vars in Railway dashboard (copy from .env.example)
+# 6. Deploy → Railway generates a public HTTPS URL
+# 7. Set that URL as the webhook in Twilio and ElevenLabs dashboards
+```
