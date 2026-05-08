@@ -5,7 +5,7 @@ A production-grade voice AI jewelry consultant — Ria — that receives calls v
 ## Quick Start
 
 ### Prerequisites
-- Python 3.9+
+- [uv](https://docs.astral.sh/uv/getting-started/installation/) (`brew install uv` or `curl -LsSf https://astral.sh/uv/install.sh | sh`)
 - Docker & Docker Compose
 - Twilio account (with WhatsApp sandbox enabled)
 - ElevenLabs account
@@ -13,10 +13,8 @@ A production-grade voice AI jewelry consultant — Ria — that receives calls v
 ### Setup
 
 ```bash
-# 1. Install dependencies
-python -m venv venv
-source venv/bin/activate      # Windows: venv\Scripts\activate
-pip install -r requirements.txt
+# 1. Install dependencies (uv creates .venv and installs everything)
+uv sync
 
 # 2. Configure environment
 cp .env.example .env
@@ -26,7 +24,7 @@ cp .env.example .env
 docker-compose up -d
 
 # 4. Run the server
-python main.py
+uv run python main.py
 ```
 
 ### Test the tool endpoint
