@@ -1,24 +1,22 @@
 """Voice service — TwiML generation and call lifecycle management.
 
 Connects inbound Twilio calls to the ElevenLabs conversational agent via
-a WebSocket media stream. Custom Stream Parameters are passed so ElevenLabs
-can include caller_phone and call_sid in every tool call body.
+a WebSocket media stream using the /v1/convai/twilio endpoint, which accepts
+Twilio's mulaw 8kHz audio format. The API key is passed as a query param
+because Twilio media streams cannot send custom headers.
+
+Custom Stream Parameters (caller_phone, call_sid) are injected so ElevenLabs
+includes them in every tool call body (needed for WhatsApp delivery).
 """
 
-import asyncio
 from typing import Optional
 
 from twilio.twiml.voice_response import Connect, Stream, VoiceResponse
 
-from app.repositories import RedisSessionRepository
 from app.services.session_service import SessionService
 from app.shared import get_logger
 
 logger = get_logger("voice_service")
-
-# ElevenLabs Twilio WebSocket endpoint (verified against ElevenLabs docs).
-# agent_id identifies which ElevenLabs agent handles the call.
-_ELEVENLABS_TWILIO_WS = "wss://api.elevenlabs.io/v1/convai/twilio"
 
 
 class VoiceService:
@@ -27,21 +25,39 @@ class VoiceService:
     def __init__(
         self,
         agent_id: str,
+        elevenlabs_api_key: str,
         session_service: SessionService,
     ) -> None:
         self._agent_id = agent_id
+        self._api_key = elevenlabs_api_key
         self._session = session_service
+
+    def _check_api_key(self) -> None:
+        """Log whether the ElevenLabs API key looks valid (startup diagnostic)."""
+        if not self._api_key:
+            logger.error("ELEVENLABS_API_KEY is not set")
+        elif not self._api_key.startswith("sk_"):
+            logger.warning("ELEVENLABS_API_KEY does not start with 'sk_' — may be invalid")
+        else:
+            logger.info("ElevenLabs API key loaded (sk_...%s)", self._api_key[-4:])
 
     def generate_inbound_twiml(self, call_sid: str, caller_phone: str) -> str:
         """Return TwiML XML that streams the call to the ElevenLabs agent.
 
-        Passes caller_phone and call_sid as Stream Parameters so the agent
-        can include them in tool call bodies (needed for WhatsApp delivery).
+        Uses the /v1/convai/twilio endpoint which accepts Twilio's mulaw
+        8kHz audio format. The API key is passed as a query param because
+        Twilio media streams cannot send custom headers.
         """
+        ws_url = (
+            f"wss://api.elevenlabs.io/v1/convai/twilio"
+            f"?agent_id={self._agent_id}"
+            f"&xi-api-key={self._api_key}"
+        )
+
         response = VoiceResponse()
         connect = Connect()
 
-        stream = Stream(url=f"{_ELEVENLABS_TWILIO_WS}?agent_id={self._agent_id}")
+        stream = Stream(url=ws_url)
         stream.parameter(name="caller_phone", value=caller_phone)
         stream.parameter(name="call_sid", value=call_sid)
 
@@ -50,7 +66,6 @@ class VoiceService:
 
         twiml = str(response)
         logger.info("Generated TwiML for call_sid=%s caller=%s", call_sid, caller_phone)
-        logger.debug("TwiML: %s", twiml)
         return twiml
 
     async def on_call_initiated(self, call_sid: str, caller_phone: str) -> None:

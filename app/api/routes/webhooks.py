@@ -5,6 +5,8 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Form
 from fastapi.responses import Response
 
+from twilio.twiml.voice_response import Say, VoiceResponse
+
 from app.services.voice_service import VoiceService
 from app.shared import get_logger
 
@@ -35,7 +37,15 @@ async def inbound_call(
 
     await voice_service.on_call_initiated(call_sid=CallSid, caller_phone=From)
 
-    twiml = voice_service.generate_inbound_twiml(call_sid=CallSid, caller_phone=From)
+    try:
+        twiml = voice_service.generate_inbound_twiml(call_sid=CallSid, caller_phone=From)
+    except Exception as exc:
+        logger.error("Failed to generate TwiML for %s: %s", CallSid, exc)
+        # Return a graceful spoken error instead of a 500 (Twilio reads it aloud)
+        fallback = VoiceResponse()
+        fallback.append(Say("Sorry, we're having a technical issue. Please try again in a moment."))
+        return Response(content=str(fallback), media_type="application/xml")
+
     return Response(content=twiml, media_type="application/xml")
 
 

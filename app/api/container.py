@@ -52,8 +52,10 @@ class AppContainer:
 
         self.voice_service = VoiceService(
             agent_id=self.config.elevenlabs_agent_id,
+            elevenlabs_api_key=self.config.elevenlabs_api_key,
             session_service=self._session,
         )
+        self.voice_service._check_api_key()
         logger.info("  Voice service ready")
 
         self.conversation_feature = ConversationFeature(
