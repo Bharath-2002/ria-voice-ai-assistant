@@ -1,9 +1,11 @@
-"""Conversation feature — orchestrates session and product search for ElevenLabs tool calls."""
+"""Conversation feature — orchestrates session, product search, and WhatsApp delivery."""
 
+import asyncio
 from typing import Any, Dict, List, Optional
 
 from app.entities import Product
 from app.services import BlueStoneService, SessionService
+from app.services.whatsapp_service import WhatsAppService
 from app.shared import get_logger
 
 logger = get_logger("conversation_feature")
@@ -30,9 +32,11 @@ class ConversationFeature:
         self,
         session_service: SessionService,
         bluestone_service: BlueStoneService,
+        whatsapp_service: Optional[WhatsAppService] = None,
     ) -> None:
         self._session = session_service
         self._bluestone = bluestone_service
+        self._whatsapp = whatsapp_service
 
     async def handle_search_products(
         self,
@@ -41,18 +45,18 @@ class ConversationFeature:
         metal_preference: Optional[str] = None,
         budget_max: Optional[int] = None,
         occasion: Optional[str] = None,
+        caller_phone: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Handle ElevenLabs search_products tool call.
 
-        Updates session context, searches BlueStone, and returns a response
-        with both a voice narration ('say') and structured product data ('data').
+        Searches BlueStone, updates session context, fires WhatsApp cards
+        asynchronously (non-blocking), and returns the voice response.
         """
         logger.info(
-            "search_products: conv=%s query=%r metal=%s budget=%s occasion=%s",
-            conversation_id, search_query, metal_preference, budget_max, occasion,
+            "search_products: conv=%s query=%r metal=%s budget=%s occasion=%s phone=%s",
+            conversation_id, search_query, metal_preference, budget_max, occasion, caller_phone,
         )
 
-        # Persist whatever context we learned from this tool call
         context_updates: Dict[str, Any] = {}
         if metal_preference:
             context_updates["metal_preference"] = metal_preference
@@ -60,10 +64,11 @@ class ConversationFeature:
             context_updates["budget_max"] = budget_max
         if occasion:
             context_updates["occasion"] = occasion
+        if caller_phone:
+            context_updates["user_phone"] = caller_phone
         if context_updates:
             await self._session.update_context(conversation_id, context_updates)
 
-        # Build optional tag list for occasion-based filtering
         extra_tags = [occasion] if occasion else None
 
         try:
@@ -94,11 +99,19 @@ class ConversationFeature:
 
         top = products[:3]
 
-        # Store the recommended product IDs in session for follow-up context
         await self._session.update_context(
             conversation_id,
             {"recommended_products": [str(p.id) for p in top]},
         )
+
+        # Fire-and-forget WhatsApp cards — does not delay the voice response
+        if self._whatsapp and caller_phone:
+            asyncio.create_task(
+                self._whatsapp.send_product_cards(caller_phone=caller_phone, products=top)
+            )
+            whatsapp_line = "I'm sending the details to your WhatsApp right now. "
+        else:
+            whatsapp_line = ""
 
         narration = _narrate_products(top)
         count_phrase = f"{len(products)} design{'s' if len(products) != 1 else ''}"
@@ -107,7 +120,7 @@ class ConversationFeature:
             "say": (
                 f"I found {count_phrase} for you. "
                 f"My top picks are {narration}. "
-                "I'm sending the details to your WhatsApp right now. "
+                f"{whatsapp_line}"
                 "Which one would you like to know more about?"
             ),
             "data": {
@@ -131,6 +144,7 @@ class ConversationFeature:
         self,
         conversation_id: str,
         design_id: int,
+        caller_phone: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Handle ElevenLabs get_product_details tool call."""
         logger.info("get_product_details: conv=%s designId=%d", conversation_id, design_id)
@@ -142,6 +156,12 @@ class ConversationFeature:
                        "Would you like me to search for something similar?",
                 "data": {"product": None},
             }
+
+        # Fire-and-forget single product card to WhatsApp
+        if self._whatsapp and caller_phone:
+            asyncio.create_task(
+                self._whatsapp.send_product_cards(caller_phone=caller_phone, products=[product])
+            )
 
         detail_parts = []
         if product.metal:

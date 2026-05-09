@@ -22,7 +22,11 @@ async def search_products(
     request: Request,
     feature: ConversationFeature = Depends(_get_feature),
 ) -> Dict[str, Any]:
-    """ElevenLabs server tool: search BlueStone catalog and return top picks."""
+    """ElevenLabs server tool: search BlueStone catalog and return top picks.
+
+    ElevenLabs passes caller_phone (set as a Stream Parameter in the TwiML)
+    so WhatsApp cards can be sent during the call.
+    """
     try:
         body = await request.json()
         logger.info("Tool call search_products: %s", body)
@@ -32,6 +36,7 @@ async def search_products(
             metal_preference=body.get("metal_preference"),
             budget_max=body.get("budget_max"),
             occasion=body.get("occasion"),
+            caller_phone=body.get("caller_phone"),
         )
     except Exception as exc:
         logger.error("search_products tool error: %s", exc, exc_info=True)
@@ -50,6 +55,7 @@ async def get_product_details(
         return await feature.handle_get_product_details(
             conversation_id=body.get("conversation_id", "unknown"),
             design_id=int(body["design_id"]),
+            caller_phone=body.get("caller_phone"),
         )
     except KeyError:
         raise HTTPException(status_code=422, detail="design_id is required")

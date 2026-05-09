@@ -4,7 +4,7 @@ import httpx
 
 from app.features import ConversationFeature
 from app.repositories import RedisSessionRepository
-from app.services import BlueStoneService, SessionService
+from app.services import BlueStoneService, SessionService, VoiceService, WhatsAppService
 from app.shared import AppConfig, get_logger
 
 logger = get_logger("container")
@@ -19,6 +19,8 @@ class AppContainer:
         self._redis_repo: RedisSessionRepository | None = None
         self._bluestone: BlueStoneService | None = None
         self._session: SessionService | None = None
+        self._whatsapp: WhatsAppService | None = None
+        self.voice_service: VoiceService | None = None
         self.conversation_feature: ConversationFeature | None = None
 
     async def initialize(self) -> None:
@@ -41,9 +43,23 @@ class AppContainer:
         self._session = SessionService(repo=self._redis_repo)
         logger.info("  Session service ready")
 
+        self._whatsapp = WhatsAppService(
+            account_sid=self.config.twilio_account_sid,
+            auth_token=self.config.twilio_auth_token,
+            from_number=self.config.twilio_whatsapp_number,
+        )
+        logger.info("  WhatsApp service ready")
+
+        self.voice_service = VoiceService(
+            agent_id=self.config.elevenlabs_agent_id,
+            session_service=self._session,
+        )
+        logger.info("  Voice service ready")
+
         self.conversation_feature = ConversationFeature(
             session_service=self._session,
             bluestone_service=self._bluestone,
+            whatsapp_service=self._whatsapp,
         )
         logger.info("  ConversationFeature ready")
         logger.info("Container fully initialized")

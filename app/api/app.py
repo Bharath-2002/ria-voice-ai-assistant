@@ -51,7 +51,9 @@ def create_app() -> FastAPI:
     )
 
     from app.api.routes.tools import router as tools_router
+    from app.api.routes.webhooks import router as webhooks_router
     app.include_router(tools_router)
+    app.include_router(webhooks_router)
 
     @app.get("/health", tags=["health"])
     async def health():
