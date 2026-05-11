@@ -4,7 +4,7 @@ import httpx
 
 from app.features import ConversationFeature
 from app.repositories import RedisSessionRepository
-from app.services import BlueStoneService, SessionService, VoiceService, WhatsAppService
+from app.services import BlueStoneService, SessionService, StoreService, VoiceService, WhatsAppService
 from app.shared import AppConfig, get_logger
 
 logger = get_logger("container")
@@ -20,6 +20,7 @@ class AppContainer:
         self._bluestone: BlueStoneService | None = None
         self._session: SessionService | None = None
         self._whatsapp: WhatsAppService | None = None
+        self._store: StoreService | None = None
         self.voice_service: VoiceService | None = None
         self.conversation_feature: ConversationFeature | None = None
 
@@ -50,6 +51,9 @@ class AppContainer:
         )
         logger.info("  WhatsApp service ready")
 
+        self._store = StoreService(http_client=self._http_client)
+        logger.info("  Store service ready")
+
         self.voice_service = VoiceService(
             agent_id=self.config.elevenlabs_agent_id,
             elevenlabs_api_key=self.config.elevenlabs_api_key,
@@ -64,6 +68,7 @@ class AppContainer:
             session_service=self._session,
             bluestone_service=self._bluestone,
             whatsapp_service=self._whatsapp,
+            store_service=self._store,
         )
         logger.info("  ConversationFeature ready")
         logger.info("Container fully initialized")

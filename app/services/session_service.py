@@ -32,6 +32,10 @@ class SessionService:
         logger.info("Initializing session: %s", conversation_id)
         return await self._repo.set_session(conversation_id, session)
 
+    async def get_raw_session(self, conversation_id: str) -> Dict[str, Any]:
+        """Return the raw session dict (empty dict if not found)."""
+        return await self._repo.get_session(conversation_id) or {}
+
     async def get_context(self, conversation_id: str) -> Optional[ConversationContext]:
         """Return the current conversation context, or None if session not found."""
         session = await self._repo.get_session(conversation_id)
