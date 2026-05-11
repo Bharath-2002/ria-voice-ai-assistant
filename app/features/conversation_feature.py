@@ -25,6 +25,7 @@ def _narrate_products(products: List[Product]) -> str:
 
 
 def _product_dict(p: Product) -> Dict[str, Any]:
+    """Full product dict — used for WhatsApp cards and the detail view."""
     return {
         "id": p.id,
         "name": p.name,
@@ -36,6 +37,11 @@ def _product_dict(p: Product) -> Dict[str, Any]:
         "image_url": p.image_url,
         "product_url": p.product_url,
     }
+
+
+def _product_brief(p: Product) -> Dict[str, Any]:
+    """Slim dict for the tool response list — just enough for Ria to reference & pick IDs."""
+    return {"id": p.id, "name": p.name, "price": p.price, "metal": p.metal}
 
 
 def _product_from_dict(d: Dict[str, Any]) -> Product:
@@ -134,23 +140,26 @@ class ConversationFeature:
                 "data": {"products": []},
             }
 
-        top = products[:3]
+        # Keep the full dicts in the session (for WhatsApp cards); hand Ria a slim
+        # list of up to 10 so she can narrate the top 3 and offer the rest.
+        products = products[:10]
         await self._session.update_context(conversation_id, {
-            "recommended_products": [str(p.id) for p in top],
-            "recommended_products_full": [_product_dict(p) for p in top],
+            "recommended_products": [str(p.id) for p in products],
+            "recommended_products_full": [_product_dict(p) for p in products],
         })
 
+        top = products[:3]
         narration = _narrate_products(top)
         count_phrase = f"{len(products)} design{'s' if len(products) != 1 else ''}"
         return {
             "say": (
                 f"I found {count_phrase} for you. My top picks are {narration}. "
-                "Would you like me to send these to your WhatsApp with photos and links, "
-                "or shall I tell you more about one of them?"
+                "Are you interested in any of these? I can send you the product link on WhatsApp — "
+                "just tell me which one."
             ),
             "data": {
                 "action": "display_products",
-                "products": [_product_dict(p) for p in top],
+                "products": [_product_brief(p) for p in products],   # slim: id, name, price, metal
             },
         }
 
@@ -208,7 +217,7 @@ class ConversationFeature:
         """Return designs similar to `design_id`. Does not auto-send to WhatsApp."""
         logger.info("find_similar: conv=%s designId=%d", conversation_id, design_id)
 
-        products = await self._bluestone.get_similar_products(design_id, limit=3)
+        products = await self._bluestone.get_similar_products(design_id, limit=9)
         if not products:
             return {
                 "say": "I couldn't find similar designs for that piece right now. "
@@ -216,18 +225,20 @@ class ConversationFeature:
                 "data": {"products": []},
             }
 
+        products = products[:10]
         await self._session.update_context(conversation_id, {
             "recommended_products": [str(p.id) for p in products],
             "recommended_products_full": [_product_dict(p) for p in products],
         })
 
-        narration = _narrate_products(products)
+        top = products[:3]
+        narration = _narrate_products(top)
         return {
             "say": (
                 f"Here are some similar designs: {narration}. "
-                "Want me to send these to your WhatsApp, or hear more about one?"
+                "Want the link for any of these on WhatsApp? Just tell me which one."
             ),
-            "data": {"action": "display_products", "products": [_product_dict(p) for p in products]},
+            "data": {"action": "display_products", "products": [_product_brief(p) for p in products]},
         }
 
     # ------------------------------------------------------------- send to WA
