@@ -37,19 +37,23 @@ _BROWSER_HEADERS = {
 
 
 
+# Practical ceiling for "above X" searches — higher than any BlueStone piece.
+_BUDGET_CEILING = 100_000_000  # ₹10 crore
+
+
 def _build_budget_tag(budget_min: Optional[int], budget_max: Optional[int]) -> Optional[str]:
     """Build the BlueStone budget tag 'rs <from> to <to>'.
 
-    The API accepts arbitrary ranges (the two values listed in the docs are just
-    examples). If only an upper bound is given, the lower bound is 0. If neither
-    is given, no budget tag is applied (the search returns the full price range).
+    The API accepts arbitrary ranges (the two values in the docs are just examples):
+      - "under X"        -> budget_max=X            -> 'rs 0 to X'
+      - "above X"        -> budget_min=X            -> 'rs X to <ceiling>'
+      - "between X and Y" -> budget_min=X, budget_max=Y -> 'rs X to Y'
+      - no preference    -> neither                 -> no tag (full price range)
     """
     if budget_max is None and budget_min is None:
         return None
     lo = int(budget_min) if budget_min is not None else 0
-    hi = int(budget_max) if budget_max is not None else None
-    if hi is None:
-        return None  # "at least X" has no tag form — skip the filter
+    hi = int(budget_max) if budget_max is not None else _BUDGET_CEILING
     if lo < 0:
         lo = 0
     if hi < lo:
