@@ -63,21 +63,40 @@ def fmt_dur(secs: int) -> str:
 
 # ------------------------------------------------------------------- validation
 
+# validate() is I/O-bound (ElevenLabs fetch + Gemini judge + Postgres write), so a
+# small thread pool gives ~Nx speed-up on batch runs. Kept small to stay under the
+# Gemini RPM limit and the SQLAlchemy connection pool size.
+_VALIDATION_WORKERS = int(os.environ.get("EVAL_PARALLELISM", "4"))
+
+
+def _validate_and_store(cid: str):
+    payload = validate(cid)
+    store.save_evaluation(payload)
+    return cid
+
+
 def run_validation(conversation_ids: list[str]):
-    prog = st.progress(0.0, text="Validating…")
-    ok, fail = 0, 0
-    for i, cid in enumerate(conversation_ids, 1):
-        prog.progress(i / len(conversation_ids), text=f"Validating {cid} ({i}/{len(conversation_ids)})")
-        try:
-            payload = validate(cid)
-            store.save_evaluation(payload)
-            ok += 1
-        except Exception as e:
-            fail += 1
-            st.error(f"{cid}: {e}")
+    import concurrent.futures as cf
+
+    n = len(conversation_ids)
+    prog = st.progress(0.0, text=f"Validating 0/{n}…")
+    ok, fail, done = 0, 0, 0
+    workers = max(1, min(_VALIDATION_WORKERS, n))
+    with cf.ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {pool.submit(_validate_and_store, cid): cid for cid in conversation_ids}
+        for fut in cf.as_completed(futures):
+            cid = futures[fut]
+            done += 1
+            try:
+                fut.result()
+                ok += 1
+            except Exception as e:
+                fail += 1
+                st.error(f"{cid}: {e}")
+            prog.progress(done / n, text=f"Validating {done}/{n}…")
     prog.empty()
-    st.success(f"Done — {ok} validated{', ' + str(fail) + ' failed' if fail else ''}.")
-    load_calls.clear()  # not strictly needed (calls unchanged) but keeps things fresh
+    st.success(f"Done — {ok} validated{', ' + str(fail) + ' failed' if fail else ''} (×{workers} parallel).")
+    load_calls.clear()
 
 
 # --------------------------------------------------------------------- UI: list
