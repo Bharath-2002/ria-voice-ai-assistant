@@ -4,7 +4,8 @@ API base: https://page.bluestone.com
 Endpoints verified against BlueStone public API documentation.
 """
 
-from typing import List, Optional
+import asyncio
+from typing import Any, List, Optional
 
 import httpx
 
@@ -12,6 +13,12 @@ from app.entities import Product
 from app.shared import BlueStoneAPIError, get_logger
 
 logger = get_logger("bluestone_service")
+
+# Retry transient failures: connection/timeout errors and 429/5xx/403 responses.
+# BlueStone intermittently 403s requests from cloud IPs, so it's worth retrying.
+_RETRY_STATUSES = {403, 429, 500, 502, 503, 504}
+_MAX_ATTEMPTS = 3
+_BACKOFF_BASE_SECS = 0.5  # 0.5s, 1s, 2s ...
 
 _SEARCH_BASE = "https://page.bluestone.com"
 _PRODUCT_BASE = "https://page.bluestone.com"
@@ -60,6 +67,34 @@ class BlueStoneService:
     def __init__(self, http_client: Optional[httpx.AsyncClient] = None) -> None:
         self._client = http_client or httpx.AsyncClient(timeout=8.0, headers=_BROWSER_HEADERS)
 
+    async def _get_with_retry(self, url: str, **kwargs: Any) -> httpx.Response:
+        """GET with exponential-backoff retry on transient errors.
+
+        Retries connection/timeout errors and 403/429/5xx responses up to
+        _MAX_ATTEMPTS times. Raises the last error if all attempts fail.
+        """
+        kwargs.setdefault("headers", _BROWSER_HEADERS)
+        last_exc: Optional[Exception] = None
+        for attempt in range(1, _MAX_ATTEMPTS + 1):
+            try:
+                response = await self._client.get(url, **kwargs)
+            except httpx.RequestError as exc:
+                last_exc = exc
+                logger.warning("BlueStone GET %s attempt %d/%d failed: %s",
+                               url, attempt, _MAX_ATTEMPTS, exc)
+            else:
+                if response.status_code not in _RETRY_STATUSES:
+                    return response
+                last_exc = httpx.HTTPStatusError(
+                    f"retryable status {response.status_code}", request=response.request, response=response
+                )
+                logger.warning("BlueStone GET %s attempt %d/%d -> HTTP %d",
+                               url, attempt, _MAX_ATTEMPTS, response.status_code)
+            if attempt < _MAX_ATTEMPTS:
+                await asyncio.sleep(_BACKOFF_BASE_SECS * (2 ** (attempt - 1)))
+        assert last_exc is not None
+        raise last_exc
+
     async def search_products(
         self,
         query: str,
@@ -104,7 +139,7 @@ class BlueStoneService:
         logger.info("BlueStone search: query=%r tags=%s", query, tags)
 
         try:
-            response = await self._client.get(
+            response = await self._get_with_retry(
                 f"{_SEARCH_BASE}/page/search",
                 params=params,
                 headers=_BROWSER_HEADERS,
@@ -139,7 +174,7 @@ class BlueStoneService:
         """
         logger.info("BlueStone product details: designId=%d", design_id)
         try:
-            response = await self._client.get(
+            response = await self._get_with_retry(
                 f"{_PRODUCT_BASE}/page/product/{design_id}", headers=_BROWSER_HEADERS
             )
             response.raise_for_status()
@@ -166,7 +201,7 @@ class BlueStoneService:
         """
         logger.info("BlueStone similar designs: designId=%d", design_id)
         try:
-            response = await self._client.get(
+            response = await self._get_with_retry(
                 f"{_PRODUCT_PAGE_BASE}/similar-design/design-group/{design_id}",
                 headers=_BROWSER_HEADERS,
             )
