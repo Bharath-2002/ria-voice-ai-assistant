@@ -89,12 +89,12 @@ class VoiceService:
             "agent_id": self._agent_id,
             "agent_phone_number_id": self._agent_phone_number_id,
             "to_number": to_number,
-            # On outbound calls system__caller_id is not the dialed number, so
-            # surface the destination number explicitly for tool calls (WhatsApp).
+            # On outbound calls system__caller_id is the agent line, not the
+            # customer. Surface the dialed number so the agent/tools can use it
+            # for WhatsApp delivery (referenced as {{outbound_customer_phone}}).
             "conversation_initiation_client_data": {
                 "dynamic_variables": {
-                    "system__caller_id": to_number,
-                    "caller_phone": to_number,
+                    "outbound_customer_phone": to_number,
                 },
             },
         }

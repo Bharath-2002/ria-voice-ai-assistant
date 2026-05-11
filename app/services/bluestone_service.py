@@ -17,6 +17,17 @@ _SEARCH_BASE = "https://page.bluestone.com"
 _PRODUCT_BASE = "https://page.bluestone.com"
 _PRODUCT_PAGE_BASE = "https://www.bluestone.com"
 
+# Browser-like headers — BlueStone returns 403 to bare/cloud-IP requests
+_BROWSER_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+    ),
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Referer": "https://www.bluestone.com/",
+}
+
 # Budget tag values exactly as the BlueStone API expects them
 _BUDGET_TAG_LOW = "rs 0 to 30000"
 _BUDGET_TAG_MID = "rs 10000 to 50000"
@@ -47,7 +58,7 @@ class BlueStoneService:
     """Client for the BlueStone jewelry catalog API."""
 
     def __init__(self, http_client: Optional[httpx.AsyncClient] = None) -> None:
-        self._client = http_client or httpx.AsyncClient(timeout=8.0)
+        self._client = http_client or httpx.AsyncClient(timeout=8.0, headers=_BROWSER_HEADERS)
 
     async def search_products(
         self,
@@ -96,6 +107,7 @@ class BlueStoneService:
             response = await self._client.get(
                 f"{_SEARCH_BASE}/page/search",
                 params=params,
+                headers=_BROWSER_HEADERS,
             )
             response.raise_for_status()
         except httpx.HTTPStatusError as exc:
@@ -127,7 +139,9 @@ class BlueStoneService:
         """
         logger.info("BlueStone product details: designId=%d", design_id)
         try:
-            response = await self._client.get(f"{_PRODUCT_BASE}/page/product/{design_id}")
+            response = await self._client.get(
+                f"{_PRODUCT_BASE}/page/product/{design_id}", headers=_BROWSER_HEADERS
+            )
             response.raise_for_status()
         except httpx.HTTPError as exc:
             logger.error("BlueStone product details error for %d: %s", design_id, exc)
@@ -153,7 +167,8 @@ class BlueStoneService:
         logger.info("BlueStone similar designs: designId=%d", design_id)
         try:
             response = await self._client.get(
-                f"{_PRODUCT_PAGE_BASE}/similar-design/design-group/{design_id}"
+                f"{_PRODUCT_PAGE_BASE}/similar-design/design-group/{design_id}",
+                headers=_BROWSER_HEADERS,
             )
             response.raise_for_status()
         except httpx.HTTPError as exc:
