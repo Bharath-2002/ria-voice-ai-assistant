@@ -1,0 +1,15 @@
+FROM python:3.11-slim
+
+# Install uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+
+WORKDIR /app
+
+# Dependency files first (layer cache). Install with the optional `eval` extras.
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-dev --no-editable --extra eval
+
+COPY . .
+
+# Streamlit binds to $PORT provided by Railway (falls back to 8501 locally).
+CMD ["/bin/sh", "-c", "uv run --extra eval streamlit run eval/dashboard.py --server.port ${PORT:-8501} --server.address 0.0.0.0 --server.headless true"]
