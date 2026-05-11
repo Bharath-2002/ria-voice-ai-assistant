@@ -17,6 +17,7 @@ try:
 except Exception:
     pass
 
+import httpx
 import pandas as pd
 import streamlit as st
 
@@ -26,6 +27,59 @@ from eval.rubric import DIMENSIONS
 from eval.validator import validate
 
 st.set_page_config(page_title="Ria — Call Evaluations", layout="wide")
+
+RIA_APP_URL = os.environ.get("RIA_APP_URL", "https://ria-app-production.up.railway.app").rstrip("/")
+
+_DARK_CSS = """
+<style>
+:root, .stApp { background-color:#0e1117 !important; color:#e6e6e6 !important; }
+section[data-testid="stSidebar"] { background-color:#161a23 !important; }
+.stApp, .stApp p, .stApp span, .stApp label, .stApp li, .stApp h1, .stApp h2, .stApp h3,
+.stApp h4, .stApp .stMarkdown { color:#e6e6e6 !important; }
+[data-testid="stDataFrame"] div, [data-testid="stDataFrame"] td, [data-testid="stDataFrame"] th { color:#e6e6e6 !important; }
+[data-testid="stMetricValue"], [data-testid="stMetricLabel"] { color:#e6e6e6 !important; }
+.stTextInput input, .stNumberInput input, .stSelectbox div[data-baseweb="select"] { background-color:#1c2230 !important; color:#e6e6e6 !important; }
+div[data-testid="stExpander"] { background-color:#161a23 !important; border-color:#2a3140 !important; }
+</style>
+"""
+
+
+def apply_theme():
+    if "theme" not in st.session_state:
+        st.session_state["theme"] = "Light"
+    with st.sidebar:
+        st.session_state["theme"] = st.radio(
+            "🎨 Theme", ["Light", "Dark"],
+            index=0 if st.session_state["theme"] == "Light" else 1,
+            horizontal=True,
+        )
+    if st.session_state["theme"] == "Dark":
+        st.markdown(_DARK_CSS, unsafe_allow_html=True)
+
+
+def outbound_call_panel():
+    """Sidebar panel: trigger an outbound call to a +91 number via the ria-app backend."""
+    with st.sidebar:
+        st.divider()
+        st.markdown("### 📞 Trigger an outbound call")
+        cc, num = st.columns([1, 2])
+        with cc:
+            country = st.selectbox("Code", ["+91", "+1", "+44", "+971"], index=0, label_visibility="collapsed")
+        with num:
+            digits = st.text_input("Number", placeholder="98765 43210", label_visibility="collapsed")
+        digits_clean = "".join(ch for ch in (digits or "") if ch.isdigit())
+        to_number = f"{country}{digits_clean}" if digits_clean else ""
+        if st.button("Call now", disabled=not digits_clean, width="stretch"):
+            try:
+                r = httpx.post(f"{RIA_APP_URL}/voice/outbound", json={"to_number": to_number}, timeout=20)
+                if r.status_code < 300:
+                    st.success(f"Calling {to_number} — Ria will ring you shortly.")
+                else:
+                    st.error(f"Call failed ({r.status_code}): {r.text[:200]}")
+            except Exception as e:
+                st.error(f"Could not reach the backend: {e}")
+        if to_number:
+            st.caption(f"Will dial: `{to_number}`")
 
 
 # ----------------------------------------------------------------- data loading
@@ -259,6 +313,9 @@ def main():
         st.stop()
     if not os.environ.get("GEMINI_API_KEY"):
         st.warning("GEMINI_API_KEY not set — validation will fail until it's configured.")
+
+    apply_theme()
+    outbound_call_panel()
 
     call_id = st.query_params.get("call")
     if call_id:
