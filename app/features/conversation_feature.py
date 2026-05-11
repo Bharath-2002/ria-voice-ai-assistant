@@ -293,9 +293,15 @@ class ConversationFeature:
         self,
         conversation_id: str,
         location: str,
+        caller_phone: Optional[str] = None,
+        send_to_whatsapp: bool = False,
     ) -> Dict[str, Any]:
-        """Find BlueStone stores near a pincode or place name."""
-        logger.info("find_nearest_store: conv=%s location=%r", conversation_id, location)
+        """Find BlueStone stores near a pincode or place name.
+
+        If `send_to_whatsapp` is true and a `caller_phone` is available, the nearest
+        store's address/timings/phone/map-link is also texted to the customer.
+        """
+        logger.info("find_nearest_store: conv=%s location=%r send=%s", conversation_id, location, send_to_whatsapp)
 
         if not self._store:
             return {"say": "Store lookup isn't available right now.", "data": {"stores": []}}
@@ -324,6 +330,15 @@ class ConversationFeature:
             line += f". It's open {nearest['timings']}"
         if len(stores) > 1:
             line += f". I found {len(stores)} stores in the area"
-        line += ". Want me to send the address and map link to your WhatsApp?"
 
-        return {"say": line, "data": {"stores": stores}}
+        texted = False
+        if send_to_whatsapp and caller_phone and self._whatsapp:
+            texted = await self._whatsapp.send_store(caller_phone=caller_phone, store=nearest)
+        if texted:
+            line += ". I've sent the address and map link to your WhatsApp."
+        elif caller_phone and self._whatsapp:
+            line += ". Want me to send the address and map link to your WhatsApp?"
+        else:
+            line += "."
+
+        return {"say": line, "data": {"stores": stores, "texted": texted}}

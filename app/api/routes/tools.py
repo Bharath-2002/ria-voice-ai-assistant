@@ -143,6 +143,8 @@ async def find_nearest_store(
         return await feature.handle_find_nearest_store(
             conversation_id=body.get("conversation_id", "unknown"),
             location=body.get("location", ""),
+            caller_phone=body.get("caller_phone"),
+            send_to_whatsapp=bool(body.get("send_to_whatsapp")),
         )
     except Exception as exc:
         logger.error("find_nearest_store tool error: %s", exc, exc_info=True)

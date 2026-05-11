@@ -11,7 +11,7 @@ Sandbox setup:
 """
 
 import asyncio
-from typing import List
+from typing import Any, Dict, List, Optional
 
 from twilio.rest import Client
 
@@ -23,6 +23,15 @@ logger = get_logger("whatsapp_service")
 _MAX_PRODUCTS = 3  # send at most 3 cards per search result
 
 
+def _to_whatsapp(caller_phone: str) -> str:
+    """Normalise a phone number to Twilio WhatsApp form: whatsapp:+<E.164>."""
+    number = caller_phone[len("whatsapp:"):] if caller_phone.startswith("whatsapp:") else caller_phone
+    number = "".join(ch for ch in number if ch.isdigit() or ch == "+")
+    if not number.startswith("+"):
+        number = f"+{number}"
+    return f"whatsapp:{number}"
+
+
 def _format_card_body(product: Product) -> str:
     """Build a WhatsApp-friendly product card text."""
     lines = [f"*{product.name}*"]
@@ -31,6 +40,20 @@ def _format_card_body(product: Product) -> str:
     lines.append(f"💰 ₹{product.price:,.0f}")
     if product.product_url:
         lines.append(f"🔗 {product.product_url}")
+    return "\n".join(lines)
+
+
+def _format_store_body(store: Dict[str, Any]) -> str:
+    """Build a WhatsApp-friendly text for a BlueStone store."""
+    lines = [f"*BlueStone — {store.get('name','Store')}*"]
+    if store.get("address"):
+        lines.append(f"📍 {store['address']}")
+    if store.get("timings"):
+        lines.append(f"🕒 {store['timings']}")
+    if store.get("phone"):
+        lines.append(f"📞 {store['phone']}")
+    if store.get("maps_url"):
+        lines.append(f"🗺️ {store['maps_url']}")
     return "\n".join(lines)
 
 
@@ -70,26 +93,31 @@ class WhatsAppService:
 
         logger.info("WhatsApp: sent %d/%d cards to %s", sent, len(products[:_MAX_PRODUCTS]), to_whatsapp)
 
-    async def send_product_cards(self, caller_phone: str, products: List[Product]) -> None:
-        """Fire-and-forget: send product cards to caller's WhatsApp.
+    def _send_text_sync(self, to_whatsapp: str, body: str) -> bool:
+        try:
+            Client(self._account_sid, self._auth_token).messages.create(
+                from_=self._from, to=to_whatsapp, body=body)
+            logger.info("WhatsApp text sent → %s", to_whatsapp)
+            return True
+        except Exception as exc:
+            logger.error("WhatsApp text send failed for %s: %s", to_whatsapp, exc)
+            return False
 
-        Converts caller_phone (e.g. '+919876543210') to WhatsApp format,
-        then dispatches the synchronous Twilio client in a thread.
-        Errors are fully contained here.
-        """
+    async def send_product_cards(self, caller_phone: str, products: List[Product]) -> None:
+        """Fire-and-forget: send product cards to caller's WhatsApp. Errors are contained."""
         if not products:
             return
-
-        # Normalize to WhatsApp E.164 format: whatsapp:+<digits>
-        if caller_phone.startswith("whatsapp:"):
-            number = caller_phone[len("whatsapp:"):]
-        else:
-            number = caller_phone
-        if not number.startswith("+"):
-            number = f"+{number}"
-        to_whatsapp = f"whatsapp:{number}"
-
         try:
-            await asyncio.to_thread(self._send_sync, to_whatsapp, products)
+            await asyncio.to_thread(self._send_sync, _to_whatsapp(caller_phone), products)
         except Exception as exc:
             logger.error("WhatsApp service unexpected error: %s", exc)
+
+    async def send_store(self, caller_phone: str, store: Dict[str, Any]) -> bool:
+        """Send a single BlueStone store's details (address, timings, phone, map link) as text."""
+        if not store:
+            return False
+        try:
+            return await asyncio.to_thread(self._send_text_sync, _to_whatsapp(caller_phone), _format_store_body(store))
+        except Exception as exc:
+            logger.error("WhatsApp send_store unexpected error: %s", exc)
+            return False
