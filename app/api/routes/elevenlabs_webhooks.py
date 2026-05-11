@@ -13,6 +13,27 @@ logger = get_logger("elevenlabs_webhooks")
 
 router = APIRouter(prefix="/elevenlabs", tags=["elevenlabs"])
 
+
+@router.post("/initiation")
+async def conversation_initiation(request: Request) -> Dict[str, Any]:
+    """ElevenLabs calls this at the start of every Twilio call.
+
+    We receive the call metadata and return dynamic variables (including
+    caller_phone) so ElevenLabs can inject them into tool calls.
+    """
+    body = await request.json()
+    logger.info("Conversation initiation: %s", body)
+
+    # ElevenLabs sends caller_id for Twilio calls
+    caller_id: str = body.get("caller_id", "")
+
+    return {
+        "type": "conversation_initiation_client_data",
+        "dynamic_variables": {
+            "caller_phone": caller_id,
+        },
+    }
+
 _MAX_TIMESTAMP_SKEW_SECS = 300  # reject replays older than 5 minutes
 
 
@@ -54,7 +75,7 @@ def _format_transcript(turns: list[Dict[str, Any]]) -> str:
     lines = []
     for turn in turns:
         role = turn.get("role", "unknown").capitalize()
-        message = turn.get("message", "").strip()
+        message = (turn.get("message") or "").strip()
         if message:
             lines.append(f"{role}: {message}")
     return "\n".join(lines)

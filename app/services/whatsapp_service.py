@@ -80,12 +80,14 @@ class WhatsAppService:
         if not products:
             return
 
-        # Normalize to WhatsApp format
-        to_whatsapp = (
-            caller_phone
-            if caller_phone.startswith("whatsapp:")
-            else f"whatsapp:{caller_phone}"
-        )
+        # Normalize to WhatsApp E.164 format: whatsapp:+<digits>
+        if caller_phone.startswith("whatsapp:"):
+            number = caller_phone[len("whatsapp:"):]
+        else:
+            number = caller_phone
+        if not number.startswith("+"):
+            number = f"+{number}"
+        to_whatsapp = f"whatsapp:{number}"
 
         try:
             await asyncio.to_thread(self._send_sync, to_whatsapp, products)
