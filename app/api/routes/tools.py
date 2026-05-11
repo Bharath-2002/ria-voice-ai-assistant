@@ -42,6 +42,7 @@ async def search_products(
             conversation_id=body.get("conversation_id", "unknown"),
             search_query=body.get("search_query", "jewelry"),
             metal_preference=body.get("metal_preference"),
+            budget_min=_int_or_none(body.get("budget_min")),
             budget_max=_int_or_none(body.get("budget_max")),
             occasion=body.get("occasion"),
             caller_phone=body.get("caller_phone"),

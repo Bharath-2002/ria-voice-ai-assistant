@@ -35,17 +35,26 @@ _BROWSER_HEADERS = {
     "Referer": "https://www.bluestone.com/",
 }
 
-# Budget tag values exactly as the BlueStone API expects them
-_BUDGET_TAG_LOW = "rs 0 to 30000"
-_BUDGET_TAG_MID = "rs 10000 to 50000"
 
 
-def _build_budget_tag(budget_max: int) -> Optional[str]:
-    if budget_max <= 30000:
-        return _BUDGET_TAG_LOW
-    if budget_max <= 50000:
-        return _BUDGET_TAG_MID
-    return None  # no tag for budgets above 50k — let the search return all
+def _build_budget_tag(budget_min: Optional[int], budget_max: Optional[int]) -> Optional[str]:
+    """Build the BlueStone budget tag 'rs <from> to <to>'.
+
+    The API accepts arbitrary ranges (the two values listed in the docs are just
+    examples). If only an upper bound is given, the lower bound is 0. If neither
+    is given, no budget tag is applied (the search returns the full price range).
+    """
+    if budget_max is None and budget_min is None:
+        return None
+    lo = int(budget_min) if budget_min is not None else 0
+    hi = int(budget_max) if budget_max is not None else None
+    if hi is None:
+        return None  # "at least X" has no tag form — skip the filter
+    if lo < 0:
+        lo = 0
+    if hi < lo:
+        lo, hi = 0, hi  # nonsense range -> treat as "up to hi"
+    return f"rs {lo} to {hi}"
 
 
 def _parse_product(item: dict) -> Product:
@@ -99,17 +108,26 @@ class BlueStoneService:
         self,
         query: str,
         metal: Optional[str] = None,
+        budget_min: Optional[int] = None,
         budget_max: Optional[int] = None,
         extra_tags: Optional[List[str]] = None,
         limit: int = 10,
     ) -> List[Product]:
         """Search the BlueStone catalog.
 
+        Quirk worked around here: the BlueStone budget tag ('rs <from> to <to>')
+        only filters when it is the *only* tag — any metal/occasion/stone tag
+        alongside it makes the API ignore the price range. So we fold metal,
+        occasion and stone words into the `search_query` text and pass ONLY the
+        budget tag as a tag. (When no budget is given, metal/occasion are still
+        folded into the query text for consistency.)
+
         Args:
-            query: Free-text search term (e.g. "diamond earrings").
-            metal: Optional metal filter (e.g. "gold", "platinum").
-            budget_max: Optional max price in rupees — maps to the closest API budget tag.
-            extra_tags: Any additional filter tags (occasion, stone, etc.).
+            query: Item / free-text search term (e.g. "diamond earrings").
+            metal: Optional metal preference (e.g. "gold", "white gold", "platinum").
+            budget_min: Optional lower price bound in rupees (defaults to 0 when only max is given).
+            budget_max: Optional upper price bound in rupees. If omitted, no price filter is applied.
+            extra_tags: Extra descriptive words to add to the query (occasion, stone, etc.).
             limit: Max products to return (default 10, max from API is typically 24).
 
         Returns:
@@ -118,25 +136,31 @@ class BlueStoneService:
         Raises:
             BlueStoneAPIError: If the HTTP call fails with a non-2xx status.
         """
-        tags: List[str] = []
-        if metal:
-            tags.append(metal.lower())
-        if budget_max is not None:
-            tag = _build_budget_tag(budget_max)
-            if tag:
-                tags.append(tag)
-        if extra_tags:
-            tags.extend(extra_tags)
+        # Compose the full search text: "<metal> <extra words> <item>", de-duplicated.
+        words: List[str] = []
+        seen: set[str] = set()
+        for chunk in [metal] + list(extra_tags or []) + [query]:
+            if not chunk:
+                continue
+            for w in str(chunk).split():
+                lw = w.lower()
+                if lw not in seen:
+                    seen.add(lw)
+                    words.append(w)
+        search_query = " ".join(words) or query
+
+        budget_tag = _build_budget_tag(budget_min, budget_max)
+        tags: List[str] = [budget_tag] if budget_tag else []
 
         params: List[tuple] = [
-            ("search_query", query),
+            ("search_query", search_query),
             ("submit_search", "Search"),
             ("orderby", "popular"),
         ]
         for tag in tags:
             params.append(("tags", tag))
 
-        logger.info("BlueStone search: query=%r tags=%s", query, tags)
+        logger.info("BlueStone search: query=%r tags=%s", search_query, tags)
 
         try:
             response = await self._get_with_retry(

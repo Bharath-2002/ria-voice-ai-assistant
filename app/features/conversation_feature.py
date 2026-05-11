@@ -74,23 +74,28 @@ class ConversationFeature:
         conversation_id: str,
         search_query: str,
         metal_preference: Optional[str] = None,
+        budget_min: Optional[int] = None,
         budget_max: Optional[int] = None,
         occasion: Optional[str] = None,
         caller_phone: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Search BlueStone, update session context, return a voice-friendly response.
 
+        Budget is a range: pass budget_max for "under X" (min defaults to 0),
+        budget_min + budget_max for "between X and Y", or neither for no price filter.
         Does NOT send WhatsApp cards — Ria calls send_to_whatsapp explicitly once
         the customer confirms they want them.
         """
         logger.info(
-            "search_products: conv=%s query=%r metal=%s budget=%s occasion=%s phone=%s",
-            conversation_id, search_query, metal_preference, budget_max, occasion, caller_phone,
+            "search_products: conv=%s query=%r metal=%s budget=%s-%s occasion=%s phone=%s",
+            conversation_id, search_query, metal_preference, budget_min, budget_max, occasion, caller_phone,
         )
 
         context_updates: Dict[str, Any] = {}
         if metal_preference:
             context_updates["metal_preference"] = metal_preference
+        if budget_min is not None:
+            context_updates["budget_min"] = budget_min
         if budget_max is not None:
             context_updates["budget_max"] = budget_max
         if occasion:
@@ -106,6 +111,7 @@ class ConversationFeature:
             products = await self._bluestone.search_products(
                 query=search_query,
                 metal=metal_preference,
+                budget_min=budget_min,
                 budget_max=budget_max,
                 extra_tags=extra_tags,
             )
