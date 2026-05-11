@@ -130,7 +130,7 @@ def page_list():
 
     df = pd.DataFrame(rows)
     edited = st.data_editor(
-        df, hide_index=True, use_container_width=True,
+        df, hide_index=True, width="stretch",
         column_config={
             "select": st.column_config.CheckboxColumn("✓", help="Select for batch validation"),
             "conversation_id": st.column_config.TextColumn("Conversation", width="medium"),
