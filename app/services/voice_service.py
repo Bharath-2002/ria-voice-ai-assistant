@@ -89,6 +89,14 @@ class VoiceService:
             "agent_id": self._agent_id,
             "agent_phone_number_id": self._agent_phone_number_id,
             "to_number": to_number,
+            # On outbound calls system__caller_id is not the dialed number, so
+            # surface the destination number explicitly for tool calls (WhatsApp).
+            "conversation_initiation_client_data": {
+                "dynamic_variables": {
+                    "system__caller_id": to_number,
+                    "caller_phone": to_number,
+                },
+            },
         }
         logger.info("Initiating outbound call to %s", to_number)
         resp = await self._http.post(
