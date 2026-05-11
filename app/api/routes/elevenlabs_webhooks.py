@@ -132,26 +132,54 @@ async def post_call_webhook(
     if analysis:
         logger.info("Analysis for %s: %s", conversation_id, analysis)
 
-    # Persist transcript into the Redis session so it's available for Phase 11
+    # Build the post-call summary record: ElevenLabs' analysis summary + the
+    # working state we accumulated in Redis during the call (what the customer
+    # asked for, what we recommended) + the transcript. This is the structured
+    # record a CRM / Phase-11 persistence layer would consume.
     if container and container._session:
         try:
-            session = await container._session.get_context(conversation_id)
-            if session:
-                await container._session.update_context(
-                    conversation_id,
-                    {
-                        "transcript": formatted,
-                        "call_status": status,
-                        "call_duration_secs": duration_secs,
-                    },
-                )
-                logger.info("Session updated with transcript: conversation_id=%s", conversation_id)
+            raw = await container._session.get_raw_session(conversation_id)
+            recommended = raw.get("recommended_products_full") or []
+            summary_record = {
+                "conversation_id": conversation_id,
+                "agent_id": agent_id,
+                "status": status,
+                "duration_secs": duration_secs,
+                "customer_phone": raw.get("user_phone"),
+                "captured_preferences": {
+                    "occasion": raw.get("occasion"),
+                    "recipient": raw.get("recipient"),
+                    "metal_preference": raw.get("metal_preference"),
+                    "budget_min": raw.get("budget_min"),
+                    "budget_max": raw.get("budget_max"),
+                },
+                "recommended_products": [
+                    {"id": p.get("id"), "name": p.get("name"), "price": p.get("price")} for p in recommended
+                ],
+                "elevenlabs_summary": analysis.get("transcript_summary"),
+                "call_successful": analysis.get("call_successful"),
+            }
+            logger.info("Post-call summary record for %s: %s", conversation_id, summary_record)
+
+            # Write the final record back into the session (TTL still applies) so
+            # anything reading the session post-call sees the wrapped-up state.
+            await container._session.update_context(
+                conversation_id,
+                {
+                    "transcript": formatted,
+                    "call_status": status,
+                    "call_duration_secs": duration_secs,
+                    "elevenlabs_summary": analysis.get("transcript_summary"),
+                    "ended": True,
+                },
+            )
+            if raw:
+                logger.info("Session finalised for conversation_id=%s", conversation_id)
             else:
-                logger.warning(
-                    "No active session found for conversation_id=%s (call may have already ended)",
-                    conversation_id,
+                logger.info(
+                    "No prior session for conversation_id=%s — created a finalised record", conversation_id,
                 )
         except Exception as exc:
-            logger.error("Failed to persist transcript for %s: %s", conversation_id, exc)
+            logger.error("Failed to finalise session for %s: %s", conversation_id, exc)
 
     return {"status": "ok"}
