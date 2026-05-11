@@ -115,7 +115,8 @@ def page_list():
         if eval_filter == "failed" and not (e and not e["overall_passed"]): continue
         rows.append({
             "select": False,
-            "conversation_id": c["conversation_id"],
+            "conversation": c["conversation_id"],          # rendered as a link → ?call=<id>
+            "_cid": c["conversation_id"],                   # plain id for selection logic
             "direction": c["direction"],
             "started_at": c["started_at"],
             "duration": fmt_dur(c["duration_secs"]),
@@ -129,37 +130,37 @@ def page_list():
         return
 
     df = pd.DataFrame(rows)
+    df_view = df.copy()
+    df_view["conversation"] = df_view["conversation"].apply(lambda cid: f"?call={cid}")
+    df_view = df_view.drop(columns=["_cid"])
+
     edited = st.data_editor(
-        df, hide_index=True, width="stretch",
+        df_view, hide_index=True, width="stretch",
+        column_order=["select", "conversation", "direction", "started_at", "duration", "turns", "eval", "score"],
         column_config={
             "select": st.column_config.CheckboxColumn("✓", help="Select for batch validation"),
-            "conversation_id": st.column_config.TextColumn("Conversation", width="medium"),
+            "conversation": st.column_config.LinkColumn(
+                "Conversation", width="medium", help="Click to open the call",
+                display_text=r"\?call=(.+)"),
             "score": st.column_config.NumberColumn("Score", help="Overall 0-100"),
         },
-        disabled=["conversation_id", "direction", "started_at", "duration", "turns", "eval", "score"],
+        disabled=["conversation", "direction", "started_at", "duration", "turns", "eval", "score"],
         key="calls_table",
     )
 
-    selected = edited[edited["select"]]["conversation_id"].tolist()
-    cA, cB = st.columns([1, 3])
+    selected = df.loc[edited["select"].values, "_cid"].tolist()
+    cA, _ = st.columns([1, 3])
     with cA:
         if st.button(f"▶ Validate selected ({len(selected)})", disabled=not selected, type="primary"):
             run_validation(selected)
             st.rerun()
-
-    st.divider()
-    st.caption("Open a call for details:")
-    pick = st.selectbox("Call", ["—"] + [r["conversation_id"] for r in rows], label_visibility="collapsed")
-    if pick != "—":
-        st.session_state["open_call"] = pick
-        st.rerun()
 
 
 # ------------------------------------------------------------------ UI: detail
 
 def page_detail(conversation_id: str):
     if st.button("← Back to all calls"):
-        del st.session_state["open_call"]
+        st.query_params.clear()
         st.rerun()
 
     st.title(f"Call {conversation_id}")
@@ -240,8 +241,9 @@ def main():
     if not os.environ.get("GEMINI_API_KEY"):
         st.warning("GEMINI_API_KEY not set — validation will fail until it's configured.")
 
-    if st.session_state.get("open_call"):
-        page_detail(st.session_state["open_call"])
+    call_id = st.query_params.get("call")
+    if call_id:
+        page_detail(call_id)
     else:
         page_list()
 
