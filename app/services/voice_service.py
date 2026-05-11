@@ -9,28 +9,35 @@ Custom Stream Parameters (caller_phone, call_sid) are injected so ElevenLabs
 includes them in every tool call body (needed for WhatsApp delivery).
 """
 
-from typing import Optional
+from typing import Any, Dict, Optional
 
+import httpx
 from twilio.twiml.voice_response import Connect, Stream, VoiceResponse
 
 from app.services.session_service import SessionService
-from app.shared import get_logger
+from app.shared import ServiceError, get_logger
 
 logger = get_logger("voice_service")
 
+_OUTBOUND_CALL_URL = "https://api.elevenlabs.io/v1/convai/twilio/outbound-call"
+
 
 class VoiceService:
-    """Handles inbound call TwiML and call status tracking."""
+    """Handles inbound call TwiML, outbound call initiation, and call status."""
 
     def __init__(
         self,
         agent_id: str,
         elevenlabs_api_key: str,
         session_service: SessionService,
+        http_client: httpx.AsyncClient,
+        agent_phone_number_id: Optional[str] = None,
     ) -> None:
         self._agent_id = agent_id
         self._api_key = elevenlabs_api_key
         self._session = session_service
+        self._http = http_client
+        self._agent_phone_number_id = agent_phone_number_id
 
     def _check_api_key(self) -> None:
         """Log whether the ElevenLabs API key looks valid (startup diagnostic)."""
@@ -67,6 +74,35 @@ class VoiceService:
         twiml = str(response)
         logger.info("Generated TwiML for call_sid=%s caller=%s", call_sid, caller_phone)
         return twiml
+
+    async def initiate_outbound_call(self, to_number: str) -> Dict[str, Any]:
+        """Ask ElevenLabs to place an outbound call to `to_number` via Twilio.
+
+        ElevenLabs dials the number using the imported Twilio phone line and
+        connects the agent when the callee answers. caller_phone is available
+        to tools as the system__caller_id dynamic variable (= to_number).
+        """
+        if not self._agent_phone_number_id:
+            raise ServiceError("ELEVENLABS_PHONE_NUMBER_ID is not configured")
+
+        payload = {
+            "agent_id": self._agent_id,
+            "agent_phone_number_id": self._agent_phone_number_id,
+            "to_number": to_number,
+        }
+        logger.info("Initiating outbound call to %s", to_number)
+        resp = await self._http.post(
+            _OUTBOUND_CALL_URL,
+            headers={"xi-api-key": self._api_key},
+            json=payload,
+        )
+        if resp.status_code >= 400:
+            logger.error("Outbound call failed (%s): %s", resp.status_code, resp.text)
+            raise ServiceError(f"ElevenLabs outbound call failed ({resp.status_code}): {resp.text}")
+
+        data = resp.json()
+        logger.info("Outbound call queued to %s: %s", to_number, data)
+        return data
 
     async def on_call_initiated(self, call_sid: str, caller_phone: str) -> None:
         """Initialize Redis session when an inbound call arrives."""

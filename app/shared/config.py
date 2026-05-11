@@ -30,6 +30,7 @@ class AppConfig:
     elevenlabs_api_key: str
     elevenlabs_agent_id: str
     elevenlabs_webhook_secret: str
+    elevenlabs_phone_number_id: str
     # BlueStone
     bluestone_api_key: str
     bluestone_base_url: str
@@ -54,6 +55,7 @@ def load_config() -> AppConfig:
         elevenlabs_api_key=environ["ELEVENLABS_API_KEY"],
         elevenlabs_agent_id=environ["ELEVENLABS_AGENT_ID"],
         elevenlabs_webhook_secret=environ.get("ELEVENLABS_WEBHOOK_SECRET", ""),
+        elevenlabs_phone_number_id=environ.get("ELEVENLABS_PHONE_NUMBER_ID", ""),
         bluestone_api_key=environ.get("BLUESTONE_API_KEY", ""),
         bluestone_base_url=environ.get("BLUESTONE_BASE_URL", "https://www.bluestone.com"),
         redis_url=environ.get("REDIS_URL", "redis://localhost:6379/0"),

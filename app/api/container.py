@@ -54,6 +54,8 @@ class AppContainer:
             agent_id=self.config.elevenlabs_agent_id,
             elevenlabs_api_key=self.config.elevenlabs_api_key,
             session_service=self._session,
+            http_client=self._http_client,
+            agent_phone_number_id=self.config.elevenlabs_phone_number_id or None,
         )
         self.voice_service._check_api_key()
         logger.info("  Voice service ready")

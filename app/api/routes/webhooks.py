@@ -1,14 +1,14 @@
-"""Twilio webhook routes — inbound call handling and status callbacks."""
+"""Twilio webhook routes — inbound calls, outbound calls, and status callbacks."""
 
-from typing import Optional
+from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Depends, Form
+from fastapi import APIRouter, Body, Depends, Form, HTTPException
 from fastapi.responses import Response
 
 from twilio.twiml.voice_response import Say, VoiceResponse
 
 from app.services.voice_service import VoiceService
-from app.shared import get_logger
+from app.shared import ServiceError, get_logger
 
 logger = get_logger("webhooks_router")
 
@@ -18,6 +18,30 @@ router = APIRouter(prefix="/voice", tags=["voice"])
 def _get_voice_service() -> VoiceService:
     from app.api.container import container
     return container.voice_service
+
+
+@router.post("/outbound")
+async def outbound_call(
+    payload: Dict[str, Any] = Body(...),
+    voice_service: VoiceService = Depends(_get_voice_service),
+) -> Dict[str, Any]:
+    """Trigger an outbound call: ElevenLabs dials `to_number` and connects Ria.
+
+    Body: {"to_number": "+919385763994"}
+    """
+    to_number = (payload or {}).get("to_number", "").strip()
+    if not to_number:
+        raise HTTPException(status_code=422, detail="to_number is required (E.164, e.g. +919385763994)")
+    if not to_number.startswith("+"):
+        to_number = f"+{to_number}"
+
+    try:
+        result = await voice_service.initiate_outbound_call(to_number=to_number)
+    except ServiceError as exc:
+        logger.error("Outbound call error: %s", exc)
+        raise HTTPException(status_code=502, detail=str(exc))
+
+    return {"status": "calling", "to_number": to_number, "elevenlabs": result}
 
 
 @router.post("/inbound")
