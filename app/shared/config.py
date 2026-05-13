@@ -38,6 +38,10 @@ class AppConfig:
     # Redis
     redis_url: str
     redis_ttl_seconds: int
+    # Postgres (cross-call memory) + Gemini (post-call summariser)
+    database_url: str
+    gemini_api_key: str
+    eval_judge_model: str
 
 
 def load_config() -> AppConfig:
@@ -62,6 +66,9 @@ def load_config() -> AppConfig:
         bluestone_proxy=environ.get("BLUESTONE_PROXY", ""),
         redis_url=environ.get("REDIS_URL", "redis://localhost:6379/0"),
         redis_ttl_seconds=int(environ.get("REDIS_TTL_SECONDS", "86400")),
+        database_url=environ.get("DATABASE_URL", ""),
+        gemini_api_key=environ.get("GEMINI_API_KEY", ""),
+        eval_judge_model=environ.get("EVAL_JUDGE_MODEL", "gemini-2.5-flash"),
     )
 
 

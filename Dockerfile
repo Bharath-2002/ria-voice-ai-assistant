@@ -15,4 +15,7 @@ COPY . .
 
 EXPOSE 8000
 
-CMD ["/bin/sh", "-c", "uv run uvicorn app.api.app:app --host 0.0.0.0 --port ${PORT:-8000}"]
+# Run DB migrations first (idempotent — Alembic skips already-applied revisions),
+# then start the API. If DATABASE_URL isn't set we skip migrations so local dev
+# without Postgres still works.
+CMD ["/bin/sh", "-c", "if [ -n \"$DATABASE_URL\" ]; then uv run alembic upgrade head; else echo 'no DATABASE_URL — skipping migrations'; fi && uv run uvicorn app.api.app:app --host 0.0.0.0 --port ${PORT:-8000}"]

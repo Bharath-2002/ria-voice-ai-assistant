@@ -35,8 +35,23 @@ async def outbound_call(
     if not to_number.startswith("+"):
         to_number = f"+{to_number}"
 
+    # Pull prior-call history so Ria can greet returning customers with context.
+    previous_conversations = ""
     try:
-        result = await voice_service.initiate_outbound_call(to_number=to_number)
+        from app.api.container import container
+        if container and container.memory_service:
+            previous_conversations = container.memory_service.recent_for_prompt(to_number, limit=3)
+            if previous_conversations:
+                logger.info("Outbound: injecting prior history for %s (%d chars)",
+                            to_number, len(previous_conversations))
+    except Exception as exc:
+        logger.error("Outbound: failed to fetch prior history for %s: %s", to_number, exc)
+
+    try:
+        result = await voice_service.initiate_outbound_call(
+            to_number=to_number,
+            previous_conversations=previous_conversations,
+        )
     except ServiceError as exc:
         logger.error("Outbound call error: %s", exc)
         raise HTTPException(status_code=502, detail=str(exc))

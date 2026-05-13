@@ -16,21 +16,31 @@ router = APIRouter(prefix="/elevenlabs", tags=["elevenlabs"])
 
 @router.post("/initiation")
 async def conversation_initiation(request: Request) -> Dict[str, Any]:
-    """ElevenLabs calls this at the start of every Twilio call.
+    """ElevenLabs calls this at the start of every Twilio inbound call.
 
-    We receive the call metadata and return dynamic variables (including
-    caller_phone) so ElevenLabs can inject them into tool calls.
+    We return dynamic variables ElevenLabs injects into the agent prompt and tool
+    calls: `caller_phone` for tool routing, and `previous_conversations` — the
+    formatted recent-history string Ria uses to recognise returning customers.
     """
     body = await request.json()
     logger.info("Conversation initiation: %s", body)
-
-    # ElevenLabs sends caller_id for Twilio calls
     caller_id: str = body.get("caller_id", "")
+
+    previous_conversations = ""
+    try:
+        from app.api.container import container
+        if container and container.memory_service and caller_id:
+            previous_conversations = container.memory_service.recent_for_prompt(caller_id, limit=3)
+            if previous_conversations:
+                logger.info("Injecting prior history for %s (%d chars)", caller_id, len(previous_conversations))
+    except Exception as exc:
+        logger.error("Failed to fetch prior history for %s: %s", caller_id, exc)
 
     return {
         "type": "conversation_initiation_client_data",
         "dynamic_variables": {
             "caller_phone": caller_id,
+            "previous_conversations": previous_conversations,
         },
     }
 
@@ -132,10 +142,20 @@ async def post_call_webhook(
     if analysis:
         logger.info("Analysis for %s: %s", conversation_id, analysis)
 
-    # Build the post-call summary record: ElevenLabs' analysis summary + the
-    # working state we accumulated in Redis during the call (what the customer
-    # asked for, what we recommended) + the transcript. This is the structured
-    # record a CRM / Phase-11 persistence layer would consume.
+    # Cross-call memory: fire-and-forget. Pull the Redis session synchronously now
+    # (so it's not deleted before the task reads it), then spawn a background task
+    # that calls Gemini and writes to Postgres. The webhook returns 200 immediately
+    # so ElevenLabs doesn't retry.
+    if container and container._session and container.memory_service:
+        try:
+            raw_session = await container._session.get_raw_session(conversation_id)
+            import asyncio
+            asyncio.create_task(container.memory_service.summarize_and_save(data, raw_session))
+        except Exception as exc:
+            logger.error("Failed to spawn memory summarisation task for %s: %s", conversation_id, exc)
+
+    # Also keep the existing in-Redis finalisation (transcript + status) so the
+    # session has the wrapped-up state if anything else reads it.
     if container and container._session:
         try:
             raw = await container._session.get_raw_session(conversation_id)

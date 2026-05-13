@@ -75,12 +75,18 @@ class VoiceService:
         logger.info("Generated TwiML for call_sid=%s caller=%s", call_sid, caller_phone)
         return twiml
 
-    async def initiate_outbound_call(self, to_number: str) -> Dict[str, Any]:
+    async def initiate_outbound_call(
+        self,
+        to_number: str,
+        previous_conversations: str = "",
+    ) -> Dict[str, Any]:
         """Ask ElevenLabs to place an outbound call to `to_number` via Twilio.
 
         ElevenLabs dials the number using the imported Twilio phone line and
-        connects the agent when the callee answers. caller_phone is available
-        to tools as the system__caller_id dynamic variable (= to_number).
+        connects the agent when the callee answers. The dialed number is surfaced
+        as `outbound_customer_phone` (the inbound `system__caller_id` is the
+        agent line on outbound). `previous_conversations` carries any prior-call
+        history string so Ria can greet the customer with context.
         """
         if not self._agent_phone_number_id:
             raise ServiceError("ELEVENLABS_PHONE_NUMBER_ID is not configured")
@@ -89,12 +95,10 @@ class VoiceService:
             "agent_id": self._agent_id,
             "agent_phone_number_id": self._agent_phone_number_id,
             "to_number": to_number,
-            # On outbound calls system__caller_id is the agent line, not the
-            # customer. Surface the dialed number so the agent/tools can use it
-            # for WhatsApp delivery (referenced as {{outbound_customer_phone}}).
             "conversation_initiation_client_data": {
                 "dynamic_variables": {
                     "outbound_customer_phone": to_number,
+                    "previous_conversations": previous_conversations or "",
                 },
             },
         }

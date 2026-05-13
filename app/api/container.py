@@ -3,8 +3,10 @@
 import httpx
 
 from app.features import ConversationFeature
-from app.repositories import RedisSessionRepository
-from app.services import BlueStoneService, SessionService, StoreService, VoiceService, WhatsAppService
+from app.repositories import MemoryRepository, RedisSessionRepository
+from app.services import (
+    BlueStoneService, MemoryService, SessionService, StoreService, VoiceService, WhatsAppService,
+)
 from app.shared import AppConfig, get_logger
 
 logger = get_logger("container")
@@ -21,6 +23,8 @@ class AppContainer:
         self._session: SessionService | None = None
         self._whatsapp: WhatsAppService | None = None
         self._store: StoreService | None = None
+        self._memory_repo: MemoryRepository | None = None
+        self.memory_service: MemoryService | None = None     # exposed for the webhooks
         self.voice_service: VoiceService | None = None
         self.conversation_feature: ConversationFeature | None = None
 
@@ -57,6 +61,18 @@ class AppContainer:
         self._store = StoreService(http_client=self._http_client)
         logger.info("  Store service ready")
 
+        # Cross-call memory: customers + conversations in Postgres (optional — only when DATABASE_URL is set).
+        if self.config.database_url:
+            self._memory_repo = MemoryRepository(self.config.database_url)
+            self.memory_service = MemoryService(
+                repo=self._memory_repo,
+                gemini_api_key=self.config.gemini_api_key,
+                judge_model=self.config.eval_judge_model,
+            )
+            logger.info("  Memory service ready (postgres + gemini)")
+        else:
+            logger.info("  Memory service disabled (DATABASE_URL not set)")
+
         self.voice_service = VoiceService(
             agent_id=self.config.elevenlabs_agent_id,
             elevenlabs_api_key=self.config.elevenlabs_api_key,
@@ -83,6 +99,8 @@ class AppContainer:
             await self._bluestone.close()
         if self._redis_repo:
             await self._redis_repo.disconnect()
+        if self._memory_repo:
+            self._memory_repo.dispose()
         if self._http_client:
             await self._http_client.aclose()
         logger.info("Container shutdown complete")
