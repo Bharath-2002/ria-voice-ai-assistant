@@ -121,3 +121,27 @@ class WhatsAppService:
         except Exception as exc:
             logger.error("WhatsApp send_store unexpected error: %s", exc)
             return False
+
+    async def send_stores(self, caller_phone: str, stores: List[Dict[str, Any]]) -> int:
+        """Send each store as its own WhatsApp text. Returns the count that succeeded."""
+        if not stores:
+            return 0
+        to = _to_whatsapp(caller_phone)
+
+        def _send_all() -> int:
+            ok = 0
+            for s in stores:
+                try:
+                    Client(self._account_sid, self._auth_token).messages.create(
+                        from_=self._from, to=to, body=_format_store_body(s))
+                    ok += 1
+                    logger.info("WhatsApp store sent: %s → %s", s.get("name", "?"), to)
+                except Exception as exc:
+                    logger.error("WhatsApp store send failed for %s: %s", s.get("name", "?"), exc)
+            return ok
+
+        try:
+            return await asyncio.to_thread(_send_all)
+        except Exception as exc:
+            logger.error("WhatsApp send_stores unexpected error: %s", exc)
+            return 0

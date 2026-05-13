@@ -298,8 +298,10 @@ class ConversationFeature:
     ) -> Dict[str, Any]:
         """Find BlueStone stores near a pincode or place name.
 
-        If `send_to_whatsapp` is true and a `caller_phone` is available, the nearest
-        store's address/timings/phone/map-link is also texted to the customer.
+        If `send_to_whatsapp` is true and a `caller_phone` is available, **all**
+        stores found (up to 3) are texted to the customer — not just the nearest.
+        Earlier this sent only the closest, which mismatched Ria's spoken offer to
+        "send the addresses" when she'd just mentioned multiple stores.
         """
         logger.info("find_nearest_store: conv=%s location=%r send=%s", conversation_id, location, send_to_whatsapp)
 
@@ -331,14 +333,22 @@ class ConversationFeature:
         if len(stores) > 1:
             line += f". I found {len(stores)} stores in the area"
 
-        texted = False
+        texted_count = 0
         if send_to_whatsapp and caller_phone and self._whatsapp:
-            texted = await self._whatsapp.send_store(caller_phone=caller_phone, store=nearest)
-        if texted:
-            line += ". I've sent the address and map link to your WhatsApp."
+            texted_count = await self._whatsapp.send_stores(caller_phone=caller_phone, stores=stores)
+        if texted_count > 0:
+            if texted_count == 1:
+                line += ". I've sent the address and map link to your WhatsApp."
+            else:
+                line += f". I've sent all {texted_count} store addresses and map links to your WhatsApp."
         elif caller_phone and self._whatsapp:
-            line += ". Want me to send the address and map link to your WhatsApp?"
+            suffix = (
+                "Want me to send the address and map link to your WhatsApp?"
+                if len(stores) == 1
+                else f"Want me to send all {len(stores)} store addresses to your WhatsApp?"
+            )
+            line += f". {suffix}"
         else:
             line += "."
 
-        return {"say": line, "data": {"stores": stores, "texted": texted}}
+        return {"say": line, "data": {"stores": stores, "texted_count": texted_count}}
