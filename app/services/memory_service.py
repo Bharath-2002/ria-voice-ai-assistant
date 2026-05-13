@@ -19,9 +19,9 @@ import asyncio
 import json
 import re
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
-from app.repositories import MemoryRepository, ConversationRecord
+from app.repositories import MemoryRepository
 from app.services.phone import normalize_phone
 from app.shared import get_logger
 
