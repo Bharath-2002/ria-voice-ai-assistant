@@ -113,12 +113,14 @@ class MemoryService:
         formatted_transcript = _format_transcript(transcript_turns)
 
         # 1) ask Gemini for the structured summary
+        recommended_brief = _collect_recommended(redis_session)
+        sent_products = _collect_sent_products(redis_session)
         gem = await asyncio.to_thread(
             self._gemini_summary,
             formatted_transcript=formatted_transcript,
             captured_preferences=_collect_prefs(redis_session),
-            recommended_products=_collect_recommended(redis_session),
-            cards_sent=redis_session.get("sent_design_ids") or [],
+            recommended_products=recommended_brief,
+            sent_products=sent_products,
             elevenlabs_summary=elevenlabs_summary,
         )
 
@@ -150,8 +152,8 @@ class MemoryService:
             outcome=outcome,
             follow_up=follow_up,
             captured_preferences=_collect_prefs(redis_session),
-            recommended_products=_collect_recommended(redis_session),
-            cards_sent=redis_session.get("sent_design_ids") or [],
+            recommended_products=recommended_brief,
+            cards_sent=sent_products,
             raw_summary_elevenlabs=elevenlabs_summary or None,
             raw_transcript_turns=len(transcript_turns),
         ))
@@ -184,7 +186,7 @@ class MemoryService:
         formatted_transcript: str,
         captured_preferences: Dict[str, Any],
         recommended_products: List[Dict[str, Any]],
-        cards_sent: List[int],
+        sent_products: List[Dict[str, Any]],
         elevenlabs_summary: str,
     ) -> Dict[str, Any]:
         """Call Gemini with a strict JSON schema. Returns {summary, outcome, follow_up, customer_name}."""
@@ -200,18 +202,25 @@ class MemoryService:
             "You are summarising a finished jewellery-consultancy phone call between Ria "
             "(an AI agent at BlueStone Jewellery) and a customer. The summary will be injected "
             "into the agent's prompt the *next* time this customer calls, so it can pick the "
-            "conversation back up specifically. Be concise (2-3 sentences), name products by "
-            "name where they came up, and capture what the customer wanted, what was recommended, "
-            "and what they decided (if anything).\n\n"
+            "conversation back up specifically. Be concise (2-3 sentences), name the products the "
+            "customer ACTUALLY HAS on their WhatsApp (see SENT BELOW) by name, and capture what they "
+            "wanted, what was recommended, and what they decided (if anything).\n\n"
             f"TRANSCRIPT:\n{formatted_transcript[:6000]}\n\n"
             f"WHAT THE AGENT CAPTURED IN-SESSION:\n"
             f"- preferences: {json.dumps(captured_preferences)}\n"
-            f"- recommended products: {json.dumps(recommended_products)[:1500]}\n"
-            f"- design_ids sent to WhatsApp: {cards_sent}\n\n"
+            f"- recommended (shown verbally / in tool response): {json.dumps(recommended_products)[:1200]}\n"
+            f"- SENT TO CUSTOMER'S WHATSAPP (these are what the customer now has and can see): "
+            f"{json.dumps(sent_products)[:1500]}\n\n"
             f"ELEVENLABS' OWN SUMMARY (for reference): {elevenlabs_summary}\n\n"
+            "Rules for the summary:\n"
+            "  - When products are mentioned, prefer naming the ones in 'SENT TO CUSTOMER'S WHATSAPP' "
+            "(those are what the customer actually has). If nothing was sent, name the top 1–2 from "
+            "'recommended' that the customer reacted to.\n"
+            "  - Do not list every product — pick the most important to reference next time.\n"
+            "  - If the customer was browsing without commitment, say so plainly.\n\n"
             "Return JSON with exactly these fields:\n"
             "  summary: string  — 2-3 sentences, specific. Aimed at helping Ria pick up next time.\n"
-            "  outcome: string  — one of: browsing | card_sent | store_inquired | callback_requested | declined | other\n"
+            "  outcome: string  — one of: browsing | card_sent | store_inquired | callback_requested | declined | other.\n"
             "  follow_up: string | null — the customer's request to be contacted later, in their phrasing "
             "(e.g. 'call me back next Tuesday afternoon'), or null if no such ask.\n"
             "  customer_name: string | null — if the customer clearly stated their name, return it (capitalised), else null.\n"
@@ -263,6 +272,16 @@ def _collect_prefs(session: Dict[str, Any]) -> Dict[str, Any]:
 
 def _collect_recommended(session: Dict[str, Any]) -> List[Dict[str, Any]]:
     full = session.get("recommended_products_full") or []
+    return [
+        {"id": p.get("id"), "name": p.get("name"), "price": p.get("price")}
+        for p in full
+        if isinstance(p, dict)
+    ]
+
+
+def _collect_sent_products(session: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Products actually delivered to the customer's WhatsApp during the call."""
+    full = session.get("sent_products_full") or []
     return [
         {"id": p.get("id"), "name": p.get("name"), "price": p.get("price")}
         for p in full

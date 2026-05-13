@@ -264,23 +264,46 @@ class ConversationFeature:
             return {"say": "I'd love to send those over — what's your WhatsApp number with the country code?",
                     "data": {"sent": False, "need": "caller_phone"}}
 
-        # Resolve which products to send
+        # Resolve which products to send — prefer the cached session dicts (rich
+        # data already there) over a fresh details fetch.
+        ctx_session = await self._session.get_raw_session(conversation_id)
+        cached = ctx_session.get("recommended_products_full") or []
+        by_id = {int(d.get("id", 0)): d for d in cached if isinstance(d, dict) and d.get("id")}
+
         products: List[Product] = []
         if design_ids:
             for did in design_ids[:3]:
-                p = await self._bluestone.get_product_details(int(did))
+                did = int(did)
+                d = by_id.get(did)
+                if d:
+                    products.append(_product_from_dict(d))
+                    continue
+                p = await self._bluestone.get_product_details(did)
                 if p:
                     products.append(p)
         else:
-            ctx_session = await self._session.get_raw_session(conversation_id)
-            full = ctx_session.get("recommended_products_full") or []
-            products = [_product_from_dict(d) for d in full[:3]]
+            products = [_product_from_dict(d) for d in cached[:3]]
 
         if not products:
             return {"say": "I don't have anything to send yet — let me find some pieces for you first.",
                     "data": {"sent": False}}
 
         await self._whatsapp.send_product_cards(caller_phone=caller_phone, products=products)
+
+        # Track what was actually delivered to the customer's WhatsApp. The post-call
+        # summariser reads `sent_products_full` so summaries reference the products
+        # the customer *has on their phone* (not just the verbal top-3).
+        existing_full: List[Dict[str, Any]] = list(ctx_session.get("sent_products_full") or [])
+        existing_ids = {int(p.get("id", 0)) for p in existing_full if isinstance(p, dict) and p.get("id")}
+        for p in products:
+            if p.id and p.id not in existing_ids:
+                existing_full.append({"id": p.id, "name": p.name, "price": p.price, "metal": p.metal})
+                existing_ids.add(p.id)
+        await self._session.update_context(conversation_id, {
+            "sent_products_full": existing_full,
+            "sent_design_ids": sorted(existing_ids),
+        })
+
         names = ", ".join(p.name for p in products)
         return {
             "say": f"Done! I've sent {names} to your WhatsApp — check the photos and prices there.",
