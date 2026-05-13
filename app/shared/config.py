@@ -34,6 +34,7 @@ class AppConfig:
     # BlueStone
     bluestone_api_key: str
     bluestone_base_url: str
+    bluestone_proxy: str          # optional HTTP(S) proxy URL for BlueStone calls (cloud-IP 403 workaround)
     # Redis
     redis_url: str
     redis_ttl_seconds: int
@@ -58,6 +59,7 @@ def load_config() -> AppConfig:
         elevenlabs_phone_number_id=environ.get("ELEVENLABS_PHONE_NUMBER_ID", ""),
         bluestone_api_key=environ.get("BLUESTONE_API_KEY", ""),
         bluestone_base_url=environ.get("BLUESTONE_BASE_URL", "https://www.bluestone.com"),
+        bluestone_proxy=environ.get("BLUESTONE_PROXY", ""),
         redis_url=environ.get("REDIS_URL", "redis://localhost:6379/0"),
         redis_ttl_seconds=int(environ.get("REDIS_TTL_SECONDS", "86400")),
     )

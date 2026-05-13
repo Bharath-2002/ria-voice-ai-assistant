@@ -38,7 +38,10 @@ class AppContainer:
         await self._redis_repo.connect()
         logger.info("  Redis repository ready")
 
-        self._bluestone = BlueStoneService(http_client=self._http_client)
+        self._bluestone = BlueStoneService(
+            http_client=self._http_client,
+            proxy=self.config.bluestone_proxy or None,
+        )
         logger.info("  BlueStone service ready")
 
         self._session = SessionService(repo=self._redis_repo)

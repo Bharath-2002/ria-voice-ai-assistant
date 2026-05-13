@@ -77,8 +77,17 @@ def _parse_product(item: dict) -> Product:
 class BlueStoneService:
     """Client for the BlueStone jewelry catalog API."""
 
-    def __init__(self, http_client: Optional[httpx.AsyncClient] = None) -> None:
-        self._client = http_client or httpx.AsyncClient(timeout=8.0, headers=_BROWSER_HEADERS)
+    def __init__(self, http_client: Optional[httpx.AsyncClient] = None, proxy: Optional[str] = None) -> None:
+        # When a proxy is configured, BlueStone calls go out through it (so the catalogue
+        # sees the proxy's IP, not our datacenter IP — works around its cloud-IP 403s).
+        # That needs a dedicated client; the shared one stays proxy-free for everything else.
+        if proxy:
+            logger.info("BlueStone service using proxy")
+            self._client = httpx.AsyncClient(timeout=8.0, headers=_BROWSER_HEADERS, proxy=proxy)
+            self._owns_client = True
+        else:
+            self._client = http_client or httpx.AsyncClient(timeout=8.0, headers=_BROWSER_HEADERS)
+            self._owns_client = http_client is None
 
     async def _get_with_retry(self, url: str, **kwargs: Any) -> httpx.Response:
         """GET with exponential-backoff retry on transient errors.
@@ -256,5 +265,6 @@ class BlueStoneService:
         return products
 
     async def close(self) -> None:
-        """Close the underlying HTTP client."""
-        await self._client.aclose()
+        """Close the HTTP client if we own it (i.e. not the shared one from the container)."""
+        if self._owns_client:
+            await self._client.aclose()
