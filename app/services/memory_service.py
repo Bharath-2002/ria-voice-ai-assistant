@@ -64,6 +64,24 @@ class MemoryService:
             when = _humanise_relative(r.ended_at, now) if r.ended_at else "previously"
             tag = f" ({r.outcome})" if r.outcome else ""
             lines.append(f"- {when}{tag}: {(r.summary or '').strip()}")
+            # Attach the WhatsApp-sent products for this call (rich list from
+            # conversations.cards_sent). Gives Ria the design IDs so she can act on
+            # them directly next time — e.g. resend a specific piece without searching.
+            sent = r.cards_sent or []
+            if isinstance(sent, list) and sent:
+                sub_lines: List[str] = []
+                for p in sent:
+                    if not isinstance(p, dict):
+                        continue
+                    pid = p.get("id")
+                    nm = p.get("name") or "(unknown)"
+                    price = p.get("price")
+                    price_str = f", ₹{int(price):,}" if isinstance(price, (int, float)) and price else ""
+                    if pid is not None:
+                        sub_lines.append(f"    • {nm} (id: {pid}{price_str})")
+                if sub_lines:
+                    lines.append("  Products this customer received on WhatsApp from this call:")
+                    lines.extend(sub_lines)
         cust = self._repo.get_customer_by_phone(phone)
         header = f"Returning customer{' — ' + cust.name if cust and cust.name else ''}. Recent calls (most recent first):"
         return header + "\n" + "\n".join(lines)
